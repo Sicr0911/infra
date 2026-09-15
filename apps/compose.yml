@@ -1,0 +1,117 @@
+# Orquesta los 3 microservicios de CampusLab + una base de datos Oracle XE
+# de desarrollo, todos en la misma red.
+#
+# Requisito de layout: este archivo asume que los 4 repos estan clonados
+# como hermanos dentro de la misma carpeta, con estos nombres (los mismos
+# que usa GitHub al clonar):
+#
+#   <carpeta-padre>/
+#     infra/                                   <- este repo
+#     ms-campuslab-catalog/                     (pom.xml en la raiz)
+#     MS-Campuslab-Bookings/ms-campuslab-bookings/   (pom.xml aqui adentro)
+#     MS-Campuslab-BFF/ms-campuslab-bff/             (pom.xml aqui adentro)
+#
+# Uso: desde infra/apps -> docker compose up --build
+
+networks:
+  campuslab-net:
+    driver: bridge
+
+volumes:
+  oracle-data:
+
+services:
+  oracle-db:
+    image: gvenzl/oracle-xe:21-slim
+    container_name: campuslab-oracle-db
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-changeit}
+      APP_USER: ${DB_USERNAME:-campuslab}
+      APP_USER_PASSWORD: ${DB_PASSWORD:-campuslab}
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+      # Schema DDL de ms-campuslab-catalog: se ejecuta una sola vez, en el
+      # primer arranque, ya conectado como el APP_USER de arriba. Bookings no
+      # necesita esto: su schema lo crea Flyway automaticamente al iniciar.
+      - ../../ms-campuslab-catalog/src/main/resources/db/oracle_schema.sql:/container-entrypoint-initdb.d/startup/01-catalog-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+    networks:
+      - campuslab-net
+
+  ms-campuslab-catalog:
+    build:
+      context: ../../ms-campuslab-catalog
+    container_name: campuslab-catalog
+    environment:
+      DB_HOST: oracle-db
+      DB_PORT: 1521
+      DB_SERVICE: XEPDB1
+      DB_USERNAME: ${DB_USERNAME:-campuslab}
+      DB_PASSWORD: ${DB_PASSWORD:-campuslab}
+    ports:
+      - "8081:8081"
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - campuslab-net
+
+  ms-campuslab-bookings:
+    build:
+      context: ../../MS-Campuslab-Bookings/ms-campuslab-bookings
+    container_name: campuslab-bookings
+    environment:
+      DB_HOST: oracle-db
+      DB_PORT: 1521
+      DB_SERVICE: XEPDB1
+      DB_USERNAME: ${DB_USERNAME:-campuslab}
+      DB_PASSWORD: ${DB_PASSWORD:-campuslab}
+      CATALOG_SERVICE_URL: http://ms-campuslab-catalog:8081
+      AUTH_ISSUER_URI: ${AUTH_ISSUER_URI:-http://localhost:8080/realms/campuslab}
+    ports:
+      - "8082:8082"
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+      ms-campuslab-catalog:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - campuslab-net
+
+  ms-campuslab-bff:
+    build:
+      context: ../../MS-Campuslab-BFF/ms-campuslab-bff
+    container_name: campuslab-bff
+    environment:
+      CATALOG_SERVICE_URL: http://ms-campuslab-catalog:8081
+      BOOKINGS_SERVICE_URL: http://ms-campuslab-bookings:8082
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-TENANT_ID_PLACEHOLDER}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-API_APP_ID_URI_OR_CLIENT_ID_PLACEHOLDER}
+    ports:
+      - "8080:8080"
+    depends_on:
+      ms-campuslab-catalog:
+        condition: service_healthy
+      ms-campuslab-bookings:
+        condition: service_healthy
+    networks:
+      - campuslab-net
