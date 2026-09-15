@@ -33,9 +33,15 @@ services:
     volumes:
       - oracle-data:/opt/oracle/oradata
       # Schema DDL de ms-campuslab-catalog: se ejecuta una sola vez, en el
-      # primer arranque, ya conectado como el APP_USER de arriba. Bookings no
-      # necesita esto: su schema lo crea Flyway automaticamente al iniciar.
-      - ../../ms-campuslab-catalog/src/main/resources/db/oracle_schema.sql:/container-entrypoint-initdb.d/startup/01-catalog-schema.sql:ro
+      # primer arranque. Bookings no necesita esto: su schema lo crea Flyway
+      # automaticamente al iniciar.
+      #
+      # El DDL real se monta aparte (para no duplicarlo) y el wrapper en
+      # db-init/ lo incluye tras cambiar explicitamente de contenedor/schema
+      # (ver comentario en ese archivo: los scripts de startup de esta imagen
+      # corren en la CDB root como SYS, no dentro del PDB del APP_USER).
+      - ../../ms-campuslab-catalog/src/main/resources/db/oracle_schema.sql:/opt/oracle/catalog-schema-source.sql:ro
+      - ./db-init/01-catalog-schema.sql:/container-entrypoint-initdb.d/startup/01-catalog-schema.sql:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh"]
       interval: 10s
@@ -55,6 +61,10 @@ services:
       DB_SERVICE: XEPDB1
       DB_USERNAME: ${DB_USERNAME:-campuslab}
       DB_PASSWORD: ${DB_PASSWORD:-campuslab}
+      # Servidores de mensajeria externos (fuera de este compose / VPC).
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-34.201.119.90:9092}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-54.234.173.1}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
     ports:
       - "8081:8081"
     depends_on:
@@ -81,6 +91,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-campuslab}
       CATALOG_SERVICE_URL: http://ms-campuslab-catalog:8081
       AUTH_ISSUER_URI: ${AUTH_ISSUER_URI:-http://localhost:8080/realms/campuslab}
+      # Servidores de mensajeria externos (fuera de este compose / VPC).
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-34.201.119.90:9092}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-54.234.173.1}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
     ports:
       - "8082:8082"
     depends_on:
@@ -106,6 +120,10 @@ services:
       BOOKINGS_SERVICE_URL: http://ms-campuslab-bookings:8082
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:-c75374e8-15d8-446b-8c6c-291120e0c761}
       AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-6bf386f7-c08e-4ab9-88cd-57f56b590e66}
+      # Servidores de mensajeria externos (fuera de este compose / VPC).
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-34.201.119.90:9092}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-54.234.173.1}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
     ports:
       - "8080:8080"
     depends_on:
