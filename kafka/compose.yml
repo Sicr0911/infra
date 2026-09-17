@@ -1,0 +1,237 @@
+# Ensemble Zookeeper (3 nodos) + cluster Kafka (3 brokers) + Kafka UI, para
+# desplegar en ec2-kafka (aparte de ec2-apps: ver infra/apps/compose.yml).
+#
+# Uso: desde infra/kafka -> docker compose up -d
+#
+# Los 3 brokers viven en esta misma instancia (simulando el requisito de "3
+# brokers" del caso sin necesitar 3 EC2 separadas), cada uno expuesto en un
+# puerto externo distinto sobre la misma IP publica de ec2-kafka. Un cliente
+# solo necesita conectarse a UNO para descubrir el resto via metadata
+# (comportamiento estandar del protocolo Kafka), por eso los microservicios
+# de ec2-apps siguen apuntando solo a KAFKA_BOOTSTRAP_SERVERS=<ip>:9092.
+#
+# kafka-init crea los topicos del caso (bookings.events, audit.timeline y
+# sus *.DLT por consumidor) una sola vez, cuando los 3 brokers ya estan
+# sanos, y luego termina (no es un servicio de larga duracion).
+
+networks:
+  campuslab-kafka-net:
+    driver: bridge
+
+volumes:
+  zk1-data:
+  zk1-log:
+  zk2-data:
+  zk2-log:
+  zk3-data:
+  zk3-log:
+  kafka1-data:
+  kafka2-data:
+  kafka3-data:
+
+services:
+  zookeeper1:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: campuslab-zookeeper1
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
+    volumes:
+      - zk1-data:/var/lib/zookeeper/data
+      - zk1-log:/var/lib/zookeeper/log
+    networks:
+      - campuslab-kafka-net
+
+  zookeeper2:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: campuslab-zookeeper2
+    environment:
+      ZOOKEEPER_SERVER_ID: 2
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
+    volumes:
+      - zk2-data:/var/lib/zookeeper/data
+      - zk2-log:/var/lib/zookeeper/log
+    networks:
+      - campuslab-kafka-net
+
+  zookeeper3:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: campuslab-zookeeper3
+    environment:
+      ZOOKEEPER_SERVER_ID: 3
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
+    volumes:
+      - zk3-data:/var/lib/zookeeper/data
+      - zk3-log:/var/lib/zookeeper/log
+    networks:
+      - campuslab-kafka-net
+
+  kafka1:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: campuslab-kafka1
+    depends_on:
+      - zookeeper1
+      - zookeeper2
+      - zookeeper3
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka1:29092,EXTERNAL://${KAFKA_ADVERTISED_HOST:-34.201.119.90}:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka1-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29092"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks:
+      - campuslab-kafka-net
+
+  kafka2:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: campuslab-kafka2
+    depends_on:
+      - zookeeper1
+      - zookeeper2
+      - zookeeper3
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29093,EXTERNAL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka2:29093,EXTERNAL://${KAFKA_ADVERTISED_HOST:-34.201.119.90}:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "9093:9093"
+    volumes:
+      - kafka2-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29093"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks:
+      - campuslab-kafka-net
+
+  kafka3:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: campuslab-kafka3
+    depends_on:
+      - zookeeper1
+      - zookeeper2
+      - zookeeper3
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29094,EXTERNAL://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka3:29094,EXTERNAL://${KAFKA_ADVERTISED_HOST:-34.201.119.90}:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "9094:9094"
+    volumes:
+      - kafka3-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29094"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks:
+      - campuslab-kafka-net
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: campuslab-kafka-ui
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+      kafka3:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: campuslab
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka1:29092,kafka2:29093,kafka3:29094
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
+    ports:
+      - "8090:8080"
+    networks:
+      - campuslab-kafka-net
+
+  # Contenedor de un solo uso: crea los topicos del caso y termina. No es un
+  # servicio de larga duracion (no tiene healthcheck ni se reinicia).
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: campuslab-kafka-init
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+      kafka3:
+        condition: service_healthy
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -e
+        BOOTSTRAP=kafka1:29092,kafka2:29093,kafka3:29094
+
+        create_topic() {
+          local name="$$1" partitions="$$2" cleanup="$$3" retention_ms="$$4"
+          kafka-topics --bootstrap-server "$$BOOTSTRAP" --create --if-not-exists \
+            --topic "$$name" --partitions "$$partitions" --replication-factor 3 \
+            --config cleanup.policy="$$cleanup" --config retention.ms="$$retention_ms" \
+            --config min.insync.replicas=2
+        }
+
+        # bookings.events: fuente de verdad de eventos de la reserva
+        # (SOLICITADA -> APROBADA -> ...). Retencion 5 dias (dentro del
+        # rango 3-7 dias que pide el caso).
+        create_topic bookings.events 3 delete 432000000
+
+        # audit.timeline: historial quien/que/cuando. compact+delete para
+        # quedarse con el ultimo evento por key ademas de expirar por tiempo.
+        # Retencion 21 dias (dentro del rango 14-30 dias que pide el caso).
+        create_topic audit.timeline 3 "compact,delete" 1814400000
+
+        # *.DLT por consumidor: mensajes que fallaron tras N reintentos en
+        # ms-campuslab-audit y ms-campuslab-report al consumir
+        # bookings.events. Retencion 10 dias (dentro del rango 7-14 dias).
+        create_topic bookings.events.audit-svc.DLT 3 delete 864000000
+        create_topic bookings.events.report-svc.DLT 3 delete 864000000
+
+        echo "Topicos creados."
+    networks:
+      - campuslab-kafka-net

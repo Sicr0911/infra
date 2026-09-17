@@ -1,7 +1,7 @@
-# Orquesta los 3 microservicios de CampusLab + una base de datos Oracle XE
-# de desarrollo, todos en la misma red.
+# Orquesta el frontend Angular, los 3 microservicios de CampusLab y una base
+# de datos Oracle XE de desarrollo, todos en la misma red.
 #
-# Requisito de layout: este archivo asume que los 4 repos estan clonados
+# Requisito de layout: este archivo asume que los 5 repos estan clonados
 # como hermanos dentro de la misma carpeta, con estos nombres (los mismos
 # que usa GitHub al clonar):
 #
@@ -10,6 +10,7 @@
 #     ms-campuslab-catalog/                     (pom.xml en la raiz)
 #     MS-Campuslab-Bookings/ms-campuslab-bookings/   (pom.xml aqui adentro)
 #     MS-Campuslab-BFF/ms-campuslab-bff/             (pom.xml aqui adentro)
+#     frontend-campuslab/                       (Dockerfile en la raiz)
 #
 # Uso: desde infra/apps -> docker compose up --build
 
@@ -131,5 +132,16 @@ services:
         condition: service_healthy
       ms-campuslab-bookings:
         condition: service_healthy
+    networks:
+      - campuslab-net
+
+  ms-campuslab-frontend:
+    build:
+      context: ../../frontend-campuslab
+    container_name: campuslab-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - ms-campuslab-bff
     networks:
       - campuslab-net
