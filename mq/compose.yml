@@ -26,8 +26,13 @@ services:
     hostname: rabbitmq1
     environment:
       RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-campuslab-cluster-cookie}
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-campuslab}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeit}
+      # El usuario/contraseña NO se define aqui: cuando load_definitions
+      # esta activo (ver rabbitmq.conf), RabbitMQ ignora por completo
+      # RABBITMQ_DEFAULT_USER/PASS y no crea ningun usuario si
+      # definitions.json no trae uno -- el cluster queda sin login posible.
+      # Las credenciales (usuario "campuslab") ya estan en definitions.json,
+      # exportadas desde un nodo real con `rabbitmqctl export_definitions`
+      # (no un hash inventado a mano). Password por defecto: "changeit".
     ports:
       - "5672:5672"   # AMQP
       - "15672:15672" # Management UI
