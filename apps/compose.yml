@@ -11,6 +11,8 @@
 #     MS-Campuslab-Bookings/ms-campuslab-bookings/   (pom.xml aqui adentro)
 #     MS-Campuslab-BFF/ms-campuslab-bff/             (pom.xml aqui adentro)
 #     ms-campuslab-notify/                      (pom.xml en la raiz)
+#     ms-campuslab-audit/                       (pom.xml en la raiz)
+#     ms-campuslab-report/                      (pom.xml en la raiz)
 #     frontend-campuslab/                       (Dockerfile en la raiz)
 #
 # Uso: desde infra/apps -> docker compose up --build
@@ -153,6 +155,58 @@ services:
       - "8083:8083"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - campuslab-net
+
+  ms-campuslab-audit:
+    build:
+      context: ../../ms-campuslab-audit
+    container_name: campuslab-audit
+    environment:
+      DB_HOST: oracle-db
+      DB_PORT: 1521
+      DB_SERVICE: XEPDB1
+      DB_USERNAME: ${DB_USERNAME:-campuslab}
+      DB_PASSWORD: ${DB_PASSWORD:-campuslab}
+      AUTH_ISSUER_URI: ${AUTH_ISSUER_URI:-http://localhost:8080/realms/campuslab}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-34.201.119.90:9092}
+    ports:
+      - "8084:8084"
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - campuslab-net
+
+  ms-campuslab-report:
+    build:
+      context: ../../ms-campuslab-report
+    container_name: campuslab-report
+    environment:
+      DB_HOST: oracle-db
+      DB_PORT: 1521
+      DB_SERVICE: XEPDB1
+      DB_USERNAME: ${DB_USERNAME:-campuslab}
+      DB_PASSWORD: ${DB_PASSWORD:-campuslab}
+      AUTH_ISSUER_URI: ${AUTH_ISSUER_URI:-http://localhost:8080/realms/campuslab}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-34.201.119.90:9092}
+    ports:
+      - "8085:8085"
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
       interval: 10s
       timeout: 5s
       retries: 10
