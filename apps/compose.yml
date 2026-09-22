@@ -126,6 +126,8 @@ services:
     environment:
       CATALOG_SERVICE_URL: http://ms-campuslab-catalog:8081
       BOOKINGS_SERVICE_URL: http://ms-campuslab-bookings:8082
+      AUDIT_SERVICE_URL: http://ms-campuslab-audit:8084
+      REPORT_SERVICE_URL: http://ms-campuslab-report:8085
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:-c75374e8-15d8-446b-8c6c-291120e0c761}
       AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-6bf386f7-c08e-4ab9-88cd-57f56b590e66}
       # Servidores de mensajeria externos (fuera de este compose / VPC).
@@ -138,6 +140,10 @@ services:
       ms-campuslab-catalog:
         condition: service_healthy
       ms-campuslab-bookings:
+        condition: service_healthy
+      ms-campuslab-audit:
+        condition: service_healthy
+      ms-campuslab-report:
         condition: service_healthy
     networks:
       - campuslab-net
