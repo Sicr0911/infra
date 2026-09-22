@@ -1,0 +1,99 @@
+# Version "right-sized" de este cluster para desplegar en ec2-kafka de verdad
+# (instancia real t3.micro: 1 GiB de RAM, 2 vCPU burstable).
+#
+# compose.yml (3 zookeeper + 3 kafka + kafka-ui) esta pensado para Docker
+# Desktop local, donde sobra RAM; en una t3.micro esos 6-7 procesos JVM no
+# entran ni de cerca (cada broker por defecto quiere >=1 GiB de heap el solo).
+# Este archivo baja a 1 zookeeper + 1 kafka broker con heap acotado
+# (256m cada uno) y sin kafka-ui (otro proceso Java que no entra), y usa
+# replication-factor 1 / min.insync.replicas 1 porque con un solo broker no
+# existe redundancia real que replicar.
+#
+# Uso: desde infra/kafka -> docker compose -f compose.ec2.yml up -d
+#
+# Si mas adelante la instancia se agranda (o se usan 3 EC2 separadas para
+# Kafka), compose.yml (el de 3 brokers) es el que refleja el diseño objetivo
+# del caso; este archivo es el ajuste practico para la instancia actual.
+
+networks:
+  campuslab-kafka-net:
+    driver: bridge
+
+volumes:
+  zk-data:
+  zk-log:
+  kafka-data:
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: campuslab-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
+    volumes:
+      - zk-data:/var/lib/zookeeper/data
+      - zk-log:/var/lib/zookeeper/log
+    networks:
+      - campuslab-kafka-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: campuslab-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://${KAFKA_ADVERTISED_HOST}:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29092"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks:
+      - campuslab-kafka-net
+
+  # Contenedor de un solo uso: crea los topicos del caso y termina.
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: campuslab-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -e
+        BOOTSTRAP=kafka:29092
+
+        create_topic() {
+          local name="$$1" partitions="$$2" cleanup="$$3" retention_ms="$$4"
+          kafka-topics --bootstrap-server "$$BOOTSTRAP" --create --if-not-exists \
+            --topic "$$name" --partitions "$$partitions" --replication-factor 1 \
+            --config cleanup.policy="$$cleanup" --config retention.ms="$$retention_ms" \
+            --config min.insync.replicas=1
+        }
+
+        create_topic bookings.events 1 delete 432000000
+        create_topic audit.timeline 1 "compact,delete" 1814400000
+        create_topic bookings.events.audit-svc.DLT 1 delete 864000000
+        create_topic bookings.events.report-svc.DLT 1 delete 864000000
+
+        echo "Topicos creados."
+    networks:
+      - campuslab-kafka-net
