@@ -13,6 +13,8 @@
 #     ms-campuslab-notify/                      (pom.xml en la raiz)
 #     ms-campuslab-audit/                       (pom.xml en la raiz)
 #     ms-campuslab-report/                      (pom.xml en la raiz)
+#     ms-campuslab-rabbitmq-admin/               (pom.xml en la raiz)
+#     ms-campuslab-kafka-admin/                  (pom.xml en la raiz)
 #     frontend-campuslab/                       (Dockerfile en la raiz)
 #
 # Uso: desde infra/apps -> docker compose up --build
@@ -128,6 +130,8 @@ services:
       BOOKINGS_SERVICE_URL: http://ms-campuslab-bookings:8082
       AUDIT_SERVICE_URL: http://ms-campuslab-audit:8084
       REPORT_SERVICE_URL: http://ms-campuslab-report:8085
+      RABBITMQ_ADMIN_SERVICE_URL: http://ms-campuslab-rabbitmq-admin:8086
+      KAFKA_ADMIN_SERVICE_URL: http://ms-campuslab-kafka-admin:8087
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:-c75374e8-15d8-446b-8c6c-291120e0c761}
       AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-6bf386f7-c08e-4ab9-88cd-57f56b590e66}
       # Servidores de mensajeria externos (fuera de este compose / VPC).
@@ -144,6 +148,10 @@ services:
       ms-campuslab-audit:
         condition: service_healthy
       ms-campuslab-report:
+        condition: service_healthy
+      ms-campuslab-rabbitmq-admin:
+        condition: service_healthy
+      ms-campuslab-kafka-admin:
         condition: service_healthy
     networks:
       - campuslab-net
@@ -213,6 +221,45 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - campuslab-net
+
+  ms-campuslab-rabbitmq-admin:
+    build:
+      context: ../../ms-campuslab-rabbitmq-admin
+    container_name: campuslab-rabbitmq-admin
+    environment:
+      AUTH_ISSUER_URI: ${AUTH_ISSUER_URI:-http://localhost:8080/realms/campuslab}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-54.234.173.1}
+      RABBITMQ_MANAGEMENT_PORT: ${RABBITMQ_MANAGEMENT_PORT:-15672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-admin}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-admin_dev}
+    ports:
+      - "8086:8086"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - campuslab-net
+
+  ms-campuslab-kafka-admin:
+    build:
+      context: ../../ms-campuslab-kafka-admin
+    container_name: campuslab-kafka-admin
+    environment:
+      AUTH_ISSUER_URI: ${AUTH_ISSUER_URI:-http://localhost:8080/realms/campuslab}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-34.201.119.90:9092}
+    ports:
+      - "8087:8087"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
       interval: 10s
       timeout: 5s
       retries: 10
